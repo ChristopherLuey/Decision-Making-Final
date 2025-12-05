@@ -1,0 +1,18 @@
+# Data and artifacts
+data/
+artifacts/
+
+# Python virtual environments
+.venv/
+
+# Bytecode
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Logs
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
