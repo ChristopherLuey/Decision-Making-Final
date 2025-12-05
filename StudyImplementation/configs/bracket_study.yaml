@@ -12,7 +12,7 @@ data:
   max_sequences: 5000
   max_primitives: 12
   max_profile_loops: 3
-  allowed_primitive_types: ["LineSegment", "Arc", "Circle", "Point"]
+  allowed_primitive_types: ["Line", "Arc", "Circle", "Point"]
   allowed_constraint_types: ["Coincident", "Perpendicular", "Parallel", "Equal", "Tangent", "Horizontal", "Vertical", "Distance", "Angle"]
   train_split: 0.75
   val_split: 0.1

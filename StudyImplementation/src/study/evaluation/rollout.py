@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 import torch
 from torch.utils.data import DataLoader
 
-from study.data.dataset import BracketSketchDataset, collate_fn
+from study.data.dataset import BracketSketchDataset
 from study.models.policy import SketchPolicy
 
 
@@ -27,7 +27,7 @@ def evaluate_policy_checkpoint(
         batch_size=config["training"]["batch_size"],
         shuffle=False,
         num_workers=config["training"]["num_workers"],
-        collate_fn=collate_fn,
+        collate_fn=dataset.collate_fn,
     )
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -58,6 +58,7 @@ def _compute_metrics(
     correct = 0
     total = 0
     risks: list[float] = []
+    padding_idx = getattr(dataloader.dataset, "primitive_pad_id", 0)
     for batch in dataloader:
         primitive_types = batch["primitive_types"].to(device)
         constraint_types = batch["constraint_types"].to(device)
@@ -68,7 +69,7 @@ def _compute_metrics(
         probs = torch.softmax(logits, dim=-1)
         preds = probs.argmax(dim=-1)
 
-        targets = _extract_targets(batch, device)
+        targets = _extract_targets(batch, device, padding_idx)
         correct += (preds == targets["types"]).sum().item()
         total += preds.shape[0]
 
@@ -86,10 +87,15 @@ def _compute_metrics(
     }
 
 
-def _extract_targets(batch: Dict[str, Any], device: torch.device) -> Dict[str, torch.Tensor]:
+def _extract_targets(batch: Dict[str, Any], device: torch.device, padding_idx: int) -> Dict[str, torch.Tensor]:
+    if "target_type" in batch:
+        return {
+            "types": batch["target_type"].to(device),
+            "params": batch["target_params"].to(device),
+        }
     primitive_types = batch["primitive_types"].to(device)
     primitive_params = batch["primitive_params"].to(device)
-    valid_lengths = (primitive_types >= 0).sum(dim=1) - 1
+    valid_lengths = (primitive_types != padding_idx).sum(dim=1) - 1
     idx = torch.arange(primitive_types.shape[0], device=device)
     target_types = primitive_types[idx, valid_lengths].clone()
     target_params = primitive_params[idx, valid_lengths].clone()

@@ -7,11 +7,13 @@ import pathlib
 import time
 from typing import Any, Dict
 
+import csv
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 
-from study.data.dataset import BracketSketchDataset, collate_fn
+from study.data.dataset import BracketSketchDataset
 from study.models.policy import SketchPolicy
 from study.utils.random import set_global_seed
 
@@ -26,12 +28,12 @@ def train_conservative_q(config: Dict[str, Any], bc_checkpoint: pathlib.Path) ->
 
     train_dataset = BracketSketchDataset(train_path)
     val_dataset = BracketSketchDataset(val_path)
-    param_dim = train_dataset[0]["primitive_params"].shape[-1]
+    param_dim = train_dataset.param_dim
 
     model_kwargs = {
         "hidden_dim": config["model"]["hidden_dim"],
-        "primitive_vocab": config["model"]["primitive_vocab_size"],
-        "constraint_vocab": config["model"]["constraint_vocab_size"],
+        "primitive_vocab": train_dataset.primitive_vocab_size,
+        "constraint_vocab": train_dataset.constraint_vocab_size,
         "param_dim": param_dim,
     }
 
@@ -51,14 +53,14 @@ def train_conservative_q(config: Dict[str, Any], bc_checkpoint: pathlib.Path) ->
         batch_size=config["training"]["batch_size"],
         shuffle=True,
         num_workers=config["training"]["num_workers"],
-        collate_fn=collate_fn,
+        collate_fn=train_dataset.collate_fn,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=config["training"]["batch_size"],
         shuffle=False,
         num_workers=config["training"]["num_workers"],
-        collate_fn=collate_fn,
+        collate_fn=val_dataset.collate_fn,
     )
 
     output_dir = pathlib.Path(experiment_cfg["output_dir"]) / "cql"
@@ -70,13 +72,22 @@ def train_conservative_q(config: Dict[str, Any], bc_checkpoint: pathlib.Path) ->
 
     global_step = 0
     best_val_loss = float("inf")
+    history: list[Dict[str, float]] = []
     for epoch in range(config["training"]["max_epochs_cql"]):
         model.train()
         epoch_loss = 0.0
         start_time = time.time()
         for batch in train_loader:
             optimizer.zero_grad()
-            loss = _cql_loss(model, target_model, batch, device, alpha, discount)
+            loss = _cql_loss(
+                model,
+                target_model,
+                batch,
+                device,
+                alpha,
+                discount,
+                padding_idx=train_dataset.primitive_pad_id,
+            )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), config["training"]["grad_clip"])
             optimizer.step()
@@ -90,10 +101,18 @@ def train_conservative_q(config: Dict[str, Any], bc_checkpoint: pathlib.Path) ->
             f"[CQL] Epoch {epoch} loss={epoch_loss / len(train_loader):.4f} "
             f"val={val_loss:.4f} time={time.time() - start_time:.1f}s"
         )
+        history.append(
+            {
+                "epoch": epoch,
+                "train_loss": float(epoch_loss / len(train_loader)),
+                "val_loss": float(val_loss),
+            }
+        )
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             _save_checkpoint(output_dir / "best.ckpt", model, optimizer, epoch, best_val_loss, model_kwargs)
         _save_checkpoint(output_dir / f"epoch_{epoch}.ckpt", model, optimizer, epoch, best_val_loss, model_kwargs)
+    _save_history(output_dir, history)
 
 
 def _cql_loss(
@@ -103,12 +122,13 @@ def _cql_loss(
     device: torch.device,
     alpha: float,
     discount: float,
+    padding_idx: int,
 ) -> torch.Tensor:
     primitive_types = batch["primitive_types"].to(device)
     constraint_types = batch["constraint_types"].to(device)
     span_mm = batch["requirement_span"].to(device)
 
-    targets = _extract_targets(batch, device)
+    targets = _extract_targets(batch, device, padding_idx)
     outputs = model(primitive_types, constraint_types, span_mm)
     logits = outputs["logits"]
     mu = outputs["mu"]
@@ -147,15 +167,21 @@ def _evaluate(
 ) -> float:
     losses: list[float] = []
     for batch in dataloader:
-        loss = _cql_loss(model, model, batch, device, alpha, discount)
+        padding_idx = getattr(dataloader.dataset, "primitive_pad_id", model.policy_head.type_head.out_features)
+        loss = _cql_loss(model, model, batch, device, alpha, discount, padding_idx=padding_idx)
         losses.append(loss.item())
     return float(sum(losses) / max(1, len(losses)))
 
 
-def _extract_targets(batch: Dict[str, Any], device: torch.device) -> Dict[str, torch.Tensor]:
+def _extract_targets(batch: Dict[str, Any], device: torch.device, padding_idx: int) -> Dict[str, torch.Tensor]:
+    if "target_type" in batch:
+        return {
+            "types": batch["target_type"].to(device),
+            "params": batch["target_params"].to(device),
+        }
     primitive_types = batch["primitive_types"].to(device)
     primitive_params = batch["primitive_params"].to(device)
-    valid_lengths = (primitive_types >= 0).sum(dim=1) - 1
+    valid_lengths = (primitive_types != padding_idx).sum(dim=1) - 1
     idx = torch.arange(primitive_types.shape[0], device=device)
     target_types = primitive_types[idx, valid_lengths].clone()
     target_params = primitive_params[idx, valid_lengths].clone()
@@ -181,3 +207,26 @@ def _save_checkpoint(
         },
         path,
     )
+
+
+def _save_history(output_dir: pathlib.Path, history: list[Dict[str, float]]) -> None:
+    if not history:
+        return
+    csv_path = output_dir / "metrics.csv"
+    with csv_path.open("w", encoding="utf-8", newline="") as fp:
+        writer = csv.DictWriter(fp, fieldnames=["epoch", "train_loss", "val_loss"])
+        writer.writeheader()
+        writer.writerows(history)
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    epochs = [h["epoch"] for h in history]
+    train = [h["train_loss"] for h in history]
+    val = [h["val_loss"] for h in history]
+    ax.plot(epochs, train, label="train")
+    ax.plot(epochs, val, label="val")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output_dir / "loss_curve.png", dpi=200)
+    plt.close(fig)
