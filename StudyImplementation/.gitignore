@@ -1,7 +1,3 @@
-# Data and artifacts
-data/
-artifacts/
-
 # Python virtual environments
 .venv/
 

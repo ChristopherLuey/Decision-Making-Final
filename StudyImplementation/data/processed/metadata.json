@@ -1,0 +1,56 @@
+{
+  "primitive_vocab": {
+    "Line": 0,
+    "Arc": 1,
+    "Circle": 2,
+    "Point": 3,
+    "Other": 4
+  },
+  "constraint_vocab": {
+    "Coincident": 0,
+    "Perpendicular": 1,
+    "Parallel": 2,
+    "Equal": 3,
+    "Tangent": 4,
+    "Horizontal": 5,
+    "Vertical": 6,
+    "Distance": 7,
+    "Angle": 8
+  },
+  "primitive_vocab_size": 5,
+  "constraint_vocab_size": 9,
+  "primitive_pad_id": 5,
+  "constraint_pad_id": 9,
+  "param_dim": 6,
+  "max_primitives": 12,
+  "config_snapshot": {
+    "raw_dir": "data/raw",
+    "processed_dir": "data/processed",
+    "stats_dir": "artifacts/data_report",
+    "sketchgraphs_url": "https://sketchgraphs.cs.princeton.edu/sequence/sg_t16_validation.npy",
+    "sketchgraphs_filename": "sg_t16_validation.npy",
+    "max_sequences": 5000,
+    "max_primitives": 12,
+    "max_profile_loops": 3,
+    "allowed_primitive_types": [
+      "Line",
+      "Arc",
+      "Circle",
+      "Point"
+    ],
+    "allowed_constraint_types": [
+      "Coincident",
+      "Perpendicular",
+      "Parallel",
+      "Equal",
+      "Tangent",
+      "Horizontal",
+      "Vertical",
+      "Distance",
+      "Angle"
+    ],
+    "train_split": 0.75,
+    "val_split": 0.1,
+    "test_split": 0.15
+  }
+}

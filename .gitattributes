@@ -1,0 +1,7 @@
+StudyImplementation/artifacts/**/*.ckpt filter=lfs diff=lfs merge=lfs -text
+StudyImplementation/artifacts/**/*.png filter=lfs diff=lfs merge=lfs -text
+StudyImplementation/artifacts/**/*.json filter=lfs diff=lfs merge=lfs -text
+StudyImplementation/artifacts/**/*.csv filter=lfs diff=lfs merge=lfs -text
+StudyImplementation/artifacts/**/*.jsonl filter=lfs diff=lfs merge=lfs -text
+StudyImplementation/data/raw/* filter=lfs diff=lfs merge=lfs -text
+StudyImplementation/data/processed/*.jsonl filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,10 @@
+{"sample_idx": 36, "confidence": 0.9922260046005249, "pred": "Line", "target": "Line"}
+{"sample_idx": 15, "confidence": 0.9875006675720215, "pred": "Line", "target": "Line"}
+{"sample_idx": 3, "confidence": 0.9865917563438416, "pred": "Line", "target": "Line"}
+{"sample_idx": 10, "confidence": 0.9798830151557922, "pred": "Arc", "target": "Arc"}
+{"sample_idx": 19, "confidence": 0.9792566299438477, "pred": "Line", "target": "Line"}
+{"sample_idx": 8, "confidence": 0.03632837533950806, "pred": "Arc", "target": "Line"}
+{"sample_idx": 20, "confidence": 0.030032988637685776, "pred": "Arc", "target": "Circle"}
+{"sample_idx": 13, "confidence": 0.014015869237482548, "pred": "Arc", "target": "Circle"}
+{"sample_idx": 41, "confidence": 0.012489988468587399, "pred": "Circle", "target": "Line"}
+{"sample_idx": 21, "confidence": 0.00265905587002635, "pred": "Line", "target": "Arc"}

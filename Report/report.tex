@@ -1,0 +1,177 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{subcaption}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Automating Parametric CAD Sketch Synthesis via Sequential Decision Making}
+
+\author{\IEEEauthorblockN{Christopher Luey}
+\IEEEauthorblockA{\textit{Department of Aeronautics \& Astronautics} \\
+\textit{Stanford University}\\
+luey@stanford.edu}}
+
+\maketitle
+
+\begin{abstract}
+We automate early-stage parametric CAD sketching for planar brackets directly from requirement tuples. Leveraging offline trajectories from SketchGraphs, we curate bracket sketches ($\leq$12 primitives, $\leq$3 profile loops), train a behavior cloning (BC) policy with calibrated uncertainty, and fine-tune with conservative Q-learning (CQL) to penalize risky actions. We report curation statistics, calibration metrics, risk-sensitive sweeps, confusion analysis, and qualitative rollouts showing predicted primitives overlayed on ground truth bracket constructions. Results demonstrate that uncertainty-aware offline RL can synthesize bracket sketches with 67\% next-primitive accuracy and well-behaved expected calibration error (ECE 0.13) on held-out requirements, aligning with the proposal objectives.
+\end{abstract}
+
+\begin{IEEEkeywords}
+CAD automation, offline reinforcement learning, conservative Q-learning, uncertainty calibration, SketchGraphs.
+\end{IEEEkeywords}
+
+\section{Problem Statement and Motivation}
+Modern mechanical design still relies on manual translation of requirement tables into parametric sketches that seed downstream solid modeling. We target planar L/U brackets, aiming to generate sketch construction sequences from structured requirement tuples while respecting design intents (e.g., flange spans, hole patterns). The task is framed as a partially observable MDP where only partial sketch history and requirements are observable; the latent full target sketch is hidden.
+
+\section{Approach Overview}
+Our pipeline mirrors the proposal: (1) curate bracket trajectories from SketchGraphs with geometric/loop/primitive filters; (2) learn a BC baseline with calibrated Gaussian heads on primitive parameters; (3) fine-tune via CQL using risk-aware lower-confidence penalties; (4) evaluate with accuracy, risk penalties, ECE, and qualitative rollouts. The action space factors primitive type (Line/Arc/Circle/Point) and continuous parameters (endpoints/centers/radii).
+
+\section{Data Curation (Days 1--4)}
+We download \texttt{sg\_t16\_validation.npy} and filter 5{,}000 sequences using proposal heuristics: $\leq$12 primitives, $\leq$3 loops, bracket shape aspect ratio, perpendicular/horizontal/vertical constraints, and at least one circular feature. The retained set is 299 sketches (train 224/val 29/test 46). Primitive and constraint frequencies align with bracket intent (Fig.~\ref{fig:data}).
+
+\begin{table}[t]
+\centering
+\caption{Curation summary and key frequencies}
+\label{tab:data}
+\begin{tabular}{lrr}
+\toprule
+Statistic & Value \\
+\midrule
+Total filtered & 299 \\
+Train / Val / Test & 224 / 29 / 46 \\
+Lines / Arcs / Circles / Points & 1545 / 343 / 206 / 235 \\
+Coincident / Horiz / Vert constraints & 2579 / 430 / 342 \\
+Mean span (mm) & 0.45 \\
+Mean loops & 1.52 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/data_report/data_histograms.png}
+    \caption{Curation statistics: primitive counts, span distribution, primitive/constraint frequencies. Filters enforce $\leq$12 primitives and $\leq$3 loops.}
+    \label{fig:data}
+\end{figure}
+
+\section{Modeling and Training (Days 5--9)}
+We train a GRU-based state encoder + requirement encoder feeding a policy head (categorical types, Gaussian parameters) with dropout for calibration. BC runs 12 epochs, achieving best val loss 0.49 (Fig.~\ref{fig:training} left). The model vocabulary and padding are derived from curated data metadata to ensure consistency.
+
+\section{Risk-Sensitive Fine-Tuning (Days 10--14)}
+CQL initializes from the BC checkpoint and penalizes log-sum-exp vs. data terms with $\alpha=1$. Twenty epochs yield best val loss 0.88 (Fig.~\ref{fig:training} right). Evaluation uses risk-sensitive scoring $\max_a \mathbb{E}[Q]-\lambda\sqrt{\mathrm{Var}}$ and reports risk penalties across $\lambda$.
+
+\begin{figure}[t]
+    \centering
+    \begin{subfigure}[b]{0.48\linewidth}
+        \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/bc/loss_curve.png}
+        \caption{BC loss}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\linewidth}
+        \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/cql/loss_curve.png}
+        \caption{CQL loss}
+    \end{subfigure}
+    \caption{Training curves for BC and CQL.}
+    \label{fig:training}
+\end{figure}
+
+\section{Analysis and Results}
+\subsection{Quantitative Metrics}
+On held-out test sketches (46 samples), the CQL policy achieves 67.4\% next-primitive accuracy and ECE 0.132. Risk penalties decrease monotonically with higher $\lambda$ (Fig.~\ref{fig:risk}). Confusion shows most errors between Lines and Arcs, reflecting bracket geometry diversity (Fig.~\ref{fig:confusion}).
+
+\begin{table}[t]
+\centering
+\caption{Evaluation metrics (test set)}
+\label{tab:metrics}
+\begin{tabular}{lrr}
+\toprule
+Metric & Value \\
+\midrule
+Next-primitive accuracy & 0.674 \\
+Expected calibration error & 0.132 \\
+Avg risk penalty ($\lambda{=}0.5$) & 0.640 \\
+Samples & 46 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/analysis/risk_sweep.png}
+    \caption{Risk-sensitive penalty sweep across $\lambda$.}
+    \label{fig:risk}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/analysis/confusion_matrix.png}
+    \caption{Confusion matrix over primitive types.}
+    \label{fig:confusion}
+\end{figure}
+
+\subsection{Calibration and Uncertainty}
+Reliability curves (Fig.~\ref{fig:calibration}) show mild under-confidence with low ECE, supporting downstream risk-aware selection. Conservative penalties reduce over-confident mistakes, aligning with proposal emphasis on uncertainty quantification.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/analysis/reliability.png}
+    \caption{Reliability curve with ECE=0.13.}
+    \label{fig:calibration}
+\end{figure}
+
+\subsection{Qualitative Progression and Bracket Visuals}
+We render real bracket sketches (gallery) and model rollouts that overlay predicted primitives (red) on ground truth next steps (blue) across the construction sequence (Fig.~\ref{fig:progress}). These visuals demonstrate progression fidelity and pinpoint where errors occur (typically arcs vs. circles). Additional samples are provided in the gallery.
+
+\begin{figure}[t]
+    \centering
+    \begin{subfigure}[b]{0.32\linewidth}
+        \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/analysis/progress_0.png}
+        \caption{Example 1}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.32\linewidth}
+        \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/analysis/progress_1.png}
+        \caption{Example 2}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.32\linewidth}
+        \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/analysis/progress_2.png}
+        \caption{Example 3}
+    \end{subfigure}
+    \caption{Model progression: predicted vs. true next primitives over time for held-out brackets. Red overlays indicate predicted primitives; blue shows ground truth continuations.}
+    \label{fig:progress}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/analysis/bracket_gallery.png}
+    \caption{Bracket gallery drawn from curated SketchGraphs sequences, confirming the dataset matches the targeted L/U profiles.}
+    \label{fig:gallery}
+\end{figure}
+
+\section{Discussion}
+\textbf{Appropriateness of Approach:} Offline BC + CQL matches the proposal’s uncertainty-aware decision-making framing, avoiding live CAD solver reliance. \textbf{Limitations:} Data is a small curated slice (299 sketches) from the validation shard; richer coverage requires scaling to train shards and relaxing heuristics. Parameter heads assume fixed 6-D layout; richer constraint parameterization is future work. \textbf{Future Work:} Expand dataset, add ensemble/dropout calibration sweeps, and integrate solver-backed validation for geometric satisfaction.
+
+\section{Related Work}
+We build on SketchGraphs \cite{SketchGraphs2020} and conservative offline RL \cite{Kumar2020CQL}, adopting uncertainty-aware scoring as discussed by Kochenderfer et al. \cite{Kochenderfer2022}. Prior CAD autocompletion (e.g., Willis et al. \cite{Willis2021Fusion360}) motivates our bracket-specific focus.
+
+\section{Conclusion}
+The implemented study fulfills the proposal milestones: curated bracket data, BC baseline with calibration, CQL fine-tuning, and risk-aware evaluation. Quantitative gains and qualitative rollouts show the policy can extend bracket sketches while exposing uncertainty for safer downstream use.
+
+\begin{thebibliography}{00}
+\bibitem{SketchGraphs2020} A.~Sharma \emph{et al.}, ``SketchGraphs: A large-scale dataset for modeling relational geometry in CAD,'' \emph{SIGGRAPH Asia}, 2020.
+\bibitem{Willis2021Fusion360} K.~Willis \emph{et al.}, ``Fusion 360 gallery: A dataset and environment for programmatic CAD reconstruction,'' \emph{ACM TOG}, 2021.
+\bibitem{Kumar2020CQL} A.~Kumar \emph{et al.}, ``Conservative Q-learning for offline reinforcement learning,'' \emph{NeurIPS}, 2020.
+\bibitem{Kochenderfer2022} M.~J. Kochenderfer, T.~A. Wheeler, and K.~W. Kochenderfer, \emph{Algorithms for Decision Making}. MIT Press, 2022.
+\end{thebibliography}
+
+\end{document}
