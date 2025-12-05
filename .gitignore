@@ -11,3 +11,10 @@
 *.lof
 *.lol
 *.lot
+
+# StudyImplementation artifacts
+StudyImplementation/.venv
+StudyImplementation/data
+StudyImplementation/artifacts
+__pycache__/
+.pytest_cache/

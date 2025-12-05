@@ -6,11 +6,13 @@ import pathlib
 import time
 from typing import Any, Dict, Optional
 
+import csv
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 
-from study.data.dataset import BracketSketchDataset, collate_fn
+from study.data.dataset import BracketSketchDataset
 from study.models.policy import SketchPolicy
 from study.utils.random import set_global_seed
 
@@ -26,9 +28,9 @@ def train_behavior_cloning(config: Dict[str, Any], resume_checkpoint: Optional[p
     train_dataset = BracketSketchDataset(train_path)
     val_dataset = BracketSketchDataset(val_path)
 
-    param_dim = train_dataset[0]["primitive_params"].shape[-1]
-    primitive_vocab = config["model"]["primitive_vocab_size"]
-    constraint_vocab = config["model"]["constraint_vocab_size"]
+    param_dim = train_dataset.param_dim
+    primitive_vocab = train_dataset.primitive_vocab_size
+    constraint_vocab = train_dataset.constraint_vocab_size
     hidden_dim = config["model"]["hidden_dim"]
 
     model_kwargs = {
@@ -62,14 +64,14 @@ def train_behavior_cloning(config: Dict[str, Any], resume_checkpoint: Optional[p
         batch_size=config["training"]["batch_size"],
         shuffle=True,
         num_workers=config["training"]["num_workers"],
-        collate_fn=collate_fn,
+        collate_fn=train_dataset.collate_fn,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=config["training"]["batch_size"],
         shuffle=False,
         num_workers=config["training"]["num_workers"],
-        collate_fn=collate_fn,
+        collate_fn=val_dataset.collate_fn,
     )
 
     output_dir = pathlib.Path(experiment_cfg["output_dir"]) / "bc"
@@ -78,6 +80,7 @@ def train_behavior_cloning(config: Dict[str, Any], resume_checkpoint: Optional[p
     max_epochs = config["training"]["max_epochs_bc"]
     log_every = config["training"]["log_every_steps"]
     global_step = 0
+    history: list[Dict[str, float]] = []
 
     for epoch in range(start_epoch, max_epochs):
         model.train()
@@ -85,7 +88,7 @@ def train_behavior_cloning(config: Dict[str, Any], resume_checkpoint: Optional[p
         start_time = time.time()
         for batch_idx, batch in enumerate(train_loader):
             optimizer.zero_grad()
-            targets = _extract_targets(batch)
+            targets = _extract_targets(batch, padding_idx=train_dataset.primitive_pad_id)
             outputs = model(
                 primitive_types=batch["primitive_types"].to(device),
                 constraint_types=batch["constraint_types"].to(device),
@@ -106,10 +109,12 @@ def train_behavior_cloning(config: Dict[str, Any], resume_checkpoint: Optional[p
 
         epoch_time = time.time() - start_time
         val_loss = _evaluate(model, val_loader, device)
+        train_avg = epoch_loss / len(train_loader)
         print(
             f"Epoch {epoch} completed in {epoch_time:.1f}s "
-            f"(train loss={epoch_loss / len(train_loader):.4f}, val loss={val_loss:.4f})"
+            f"(train loss={train_avg:.4f}, val loss={val_loss:.4f})"
         )
+        history.append({"epoch": epoch, "train_loss": float(train_avg), "val_loss": float(val_loss)})
 
         is_best = val_loss < best_val_loss
         if is_best:
@@ -121,7 +126,7 @@ def train_behavior_cloning(config: Dict[str, Any], resume_checkpoint: Optional[p
             epoch,
             best_val_loss,
             model_kwargs,
-        )
+            )
         if is_best:
             _save_checkpoint(
                 output_dir / "best.ckpt",
@@ -131,13 +136,17 @@ def train_behavior_cloning(config: Dict[str, Any], resume_checkpoint: Optional[p
                 best_val_loss,
                 model_kwargs,
             )
+    _save_history(output_dir, history)
 
 
-def _extract_targets(batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+def _extract_targets(batch: Dict[str, Any], padding_idx: int) -> Dict[str, torch.Tensor]:
+    if "target_type" in batch:
+        return {"types": batch["target_type"], "params": batch["target_params"]}
+
     primitive_types = batch["primitive_types"]
     primitive_params = batch["primitive_params"]
 
-    valid_lengths = (primitive_types >= 0).sum(dim=1) - 1
+    valid_lengths = (primitive_types != padding_idx).sum(dim=1) - 1
     batch_size = primitive_types.shape[0]
     idx = torch.arange(batch_size)
     target_types = primitive_types[idx, valid_lengths].clone()
@@ -165,7 +174,8 @@ def _evaluate(model: SketchPolicy, dataloader: DataLoader, device: torch.device)
     model.eval()
     losses: list[float] = []
     for batch in dataloader:
-        targets = _extract_targets(batch)
+        padding_idx = getattr(dataloader.dataset, "primitive_pad_id", model.policy_head.type_head.out_features)
+        targets = _extract_targets(batch, padding_idx=padding_idx)
         outputs = model(
             primitive_types=batch["primitive_types"].to(device),
             constraint_types=batch["constraint_types"].to(device),
@@ -195,3 +205,26 @@ def _save_checkpoint(
         },
         path,
     )
+
+
+def _save_history(output_dir: pathlib.Path, history: list[Dict[str, float]]) -> None:
+    if not history:
+        return
+    csv_path = output_dir / "metrics.csv"
+    with csv_path.open("w", encoding="utf-8", newline="") as fp:
+        writer = csv.DictWriter(fp, fieldnames=["epoch", "train_loss", "val_loss"])
+        writer.writeheader()
+        writer.writerows(history)
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    epochs = [h["epoch"] for h in history]
+    train = [h["train_loss"] for h in history]
+    val = [h["val_loss"] for h in history]
+    ax.plot(epochs, train, label="train")
+    ax.plot(epochs, val, label="val")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output_dir / "loss_curve.png", dpi=200)
+    plt.close(fig)
