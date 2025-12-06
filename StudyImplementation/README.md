@@ -1,41 +1,84 @@
-# Automating Parametric CAD Sketch Synthesis – Implementation Plan
+# Automating Parametric CAD Sketch Synthesis
 
-This folder provides the code scaffold and documentation needed to reproduce the two-week study described in the proposal. The project automates early-stage CAD sketch construction for planar brackets using the SketchGraphs subset of the Fusion 360 Gallery dataset and a belief-aware sequential decision-making pipeline.
+This project implements a belief-aware sequential decision-making pipeline for automating early-stage CAD sketch construction, specifically focusing on planar brackets using the SketchGraphs dataset. It employs Behavior Cloning (BC) as a baseline and Conservative Q-Learning (CQL) for robust policy learning.
 
-## Folder Layout
+## Setup
 
-- `configs/`: YAML configuration files for dataset curation, model, and training hyperparameters.
-- `data/`: Placeholder for raw and processed SketchGraphs data artifacts (ignored by Git via `.gitignore`).
-- `notebooks/`: Optional exploratory analysis notebooks (empty scaffold).
-- `scripts/`: Command-line entry points that wrap the Python modules in `src/`.
-- `src/`: Python package (`study`) containing reusable modules for data processing, modeling, training, and evaluation.
-- `tests/`: Lightweight unit and smoke tests to sanity-check preprocessing and model wiring.
+1.  **Environment Setup**:
+    Create and activate a virtual environment, then install dependencies:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    ```
 
-## Quickstart
+    *Note: The code relies on PyTorch Geometric. If you encounter CUDA/installation issues, refer to the [official PyTorch Geometric installation guide](https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html).*
 
-1. **Install**: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
-2. **Download data**: `bash scripts/download_sketchgraphs.sh data/raw`
-3. **Curate bracket subset**: `python scripts/run_preprocessing.py --config configs/bracket_study.yaml`
-4. **Train behavior cloning baseline**: `python scripts/train_bc.py --config configs/bracket_study.yaml`
-5. **Fine-tune with CQL**: `python scripts/train_cql.py --config configs/bracket_study.yaml --bc-checkpoint artifacts/bc/latest.ckpt`
-6. **Evaluate**: `python scripts/evaluate_policy.py --config configs/bracket_study.yaml --checkpoint artifacts/cql/best.ckpt`
+## Usage Pipeline
 
-Each script supports `--help` to list options. Logs and artifacts are written under the `artifacts/` directory created on first run.
+The project is structured as a pipeline of scripts located in `scripts/`. Run them in the following order to reproduce the results.
 
-## Timeline Alignment
+### 1. Data Preparation
 
-- **Days 1–4**: Focus on `scripts/download_sketchgraphs.sh`, `scripts/run_preprocessing.py`, and the `study.data` package. Deliverables include summary statistics saved in `artifacts/data_report/`.
-- **Days 5–9**: Implement and validate the behavior cloning pipeline (`study.models`, `study.training.behavior_cloning`). Calibration plots are stored in `artifacts/analysis/`.
-- **Days 10–14**: Enable conservative Q-learning and uncertainty-aware planning (`study.training.conservative_q`, `study.evaluation.rollout`). Reporting utilities produce CSV/JSON and optional LaTeX tables.
+Download the SketchGraphs dataset and process it to curate the bracket subset.
 
-## Notes
+```bash
+# Download raw data (~10GB compressed)
+bash scripts/download_sketchgraphs.sh data/raw
 
-- The SketchGraphs dataset is large (~10 GB compressed). Ensure sufficient disk space before running the download script.
-- Configuration values in `configs/bracket_study.yaml` are tuned for a workstation-class GPU but can be reduced for CPU-only experiments.
-- The code uses PyTorch Geometric; refer to the official installation guide if you encounter CUDA-related dependency issues.
+# Process and curate data into training splits
+python scripts/run_preprocessing.py --config configs/bracket_study.yaml
+```
+*Outputs: `data/processed/` containing train/val/test splits and metadata.*
+
+### 2. Training
+
+First, train the Behavior Cloning (BC) baseline, then fine-tune using Conservative Q-Learning (CQL).
+
+```bash
+# Train Behavior Cloning (BC) model
+python scripts/train_bc.py --config configs/bracket_study.yaml
+```
+*Outputs: Checkpoints in `artifacts/bc/`.*
+
+```bash
+# Train CQL model (initialized from BC checkpoint)
+# Replace 'artifacts/bc/best.ckpt' with your actual best checkpoint path if different
+python scripts/train_cql.py --config configs/bracket_study.yaml --bc-checkpoint artifacts/bc/best.ckpt
+```
+*Outputs: Checkpoints in `artifacts/cql/`.*
+
+### 3. Evaluation & Analysis
+
+Evaluate the trained policies and generate figures for the report.
+
+```bash
+# Evaluate the best CQL policy
+python scripts/evaluate_policy.py --config configs/bracket_study.yaml --checkpoint artifacts/cql/best.ckpt
+```
+
+```bash
+# Generate analysis figures and tables
+python scripts/run_analysis.py
+```
+
+```bash
+# Create final paper figures
+python scripts/make_paper_figures.py
+```
+
+*Outputs: Metrics and figures in `artifacts/eval/`, `artifacts/analysis/`, and `Report/figures/`.*
+
+## Configuration
+
+The main configuration file is `configs/bracket_study.yaml`. You can modify training hyperparameters (batch size, learning rate), model architecture details, and data paths here.
+
+## Outputs
+
+- **`artifacts/`**: Contains training logs, checkpoints, and analysis outputs.
+- **`data/`**: Contains raw and processed datasets.
 
 ## References
 
-- Kochenderfer et al., *Algorithms for Decision Making*, 2022.
 - Autodesk Research, *Fusion 360 Gallery Dataset*, 2021.
 - Autodesk Research, *SketchGraphs: A Large-Scale Dataset for Modeling Relational Geometry in CAD*, 2020.

@@ -11,6 +11,7 @@
 \usepackage[caption=false,font=footnotesize]{subfig}
 \usepackage[section]{placeins}
 \usepackage{float}
+\usepackage{hyperref}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \begin{document}
@@ -40,7 +41,7 @@ Turning requirement tables into parametric CAD sketches is manual and error-pron
 
 Specifically, when a model is uncertain, it may output a mean prediction that satisfies neither option (e.g., a curve that is neither a valid line nor a valid arc). In an interactive setting, this is acceptable, but for offline automation, the system must be \textit{reliable}. It should either generate a valid construction or explicitly flag its uncertainty. We target the automation of this early-stage sketching by framing it as a sequential decision problem where the policy must not only predict the next primitive but also quantify its uncertainty.
 
-Our contributions are: (1) a bracket-focused subset of SketchGraphs with clear geometric filters; (2) a sequential behavior cloning (BC) policy with calibrated Gaussian heads; (3) a conservative Q-learning (CQL) fine-tuning stage that penalizes risky actions; and (4) a comparative evaluation showing that risk-aware training significantly improves calibration and accuracy over the BC baseline.
+Our contributions are: (1) a bracket-focused subset of SketchGraphs with clear geometric filters; (2) a sequential behavior cloning (BC) policy with calibrated Gaussian heads; (3) a conservative Q-learning (CQL) fine-tuning stage that penalizes risky actions; and (4) a comparative evaluation showing that risk-aware training significantly improves calibration and accuracy over the BC baseline. Code is available at \url{https://github.com/ChristopherLuey/Decision-Making-Final}.
 
 \section{Related Work}
 
@@ -69,12 +70,19 @@ Figure~\ref{fig:dataset} and Figure~\ref{fig:distribution} characterize this sub
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.8\linewidth]{figures/dataset_distribution.png}
+    \includegraphics[width=0.9\linewidth]{figures/dataset_distribution.png}
     \caption{Detailed distribution of primitive counts (left) and loop counts (right) in the filtered dataset. We focus on sketches with 3-12 primitives to ensure tractable but non-trivial construction tasks.}
     \label{fig:distribution}
 \end{figure}
 
 \section{Methodology}
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.9\linewidth]{figures/flowchart.png}
+\caption{System Architecture. The pipeline begins with requirement tokens (top left) which are fused with a prior over style clusters to form a belief state. The policy (center) outputs primitive types and parameters, conditioned on this belief. A risk-aware fine-tuning stage (CQL) penalizes out-of-distribution actions. The offline trajectory simulator (right) updates the sketch graph state $G_{t+1}$ for the next step.}
+\label{fig:flowchart}
+\end{figure*}
 
 \subsection{Behavior Cloning (Stage 1)}
 We first train a Behavior Cloning (BC) policy $\pi_\theta(a|s)$ to maximize the likelihood of the expert actions in the dataset $\mathcal{D}$. The architecture uses a Gated Recurrent Unit (GRU) with 128 hidden units to encode the sequence history, and a 2-layer MLP to embed the requirements. The output head predicts:
@@ -137,9 +145,9 @@ The slightly higher risk penalty for CQL suggests that while it is more accurate
 \subsection{Qualitative Sketch Rollouts}
 Figure~\ref{fig:progress} shows three held-out brackets with predicted primitives (red) overlaid on the ground-truth sequence (blue).
 \begin{itemize}
-    \item \textbf{Left (Example 1):} The model perfectly tracks the L-bracket profile, correctly predicting Lines and the closing Coincident constraint.
-    \item \textbf{Center (Example 2):} The model handles the internal hole pattern correctly (Circles) but shows slight deviation on the flange height.
-    \item \textbf{Right (Example 3):} This illustrates the main failure mode. The ground truth uses a specific Arc radius for the fillet, while the model predicts a slightly different curvature. However, critically, the model's uncertainty (not visualized here, but high in the logs) would allow a user to correct this.
+    \item \textbf{Top (Example 1):} The model perfectly tracks the L-bracket profile, correctly predicting Lines and the closing Coincident constraint.
+    \item \textbf{Middle (Example 2):} The model handles the internal hole pattern correctly (Circles) but shows slight deviation on the flange height.
+    \item \textbf{Bottom (Example 3):} This illustrates the main failure mode. The ground truth uses a specific Arc radius for the fillet, while the model predicts a slightly different curvature. However, critically, the model's uncertainty (not visualized here, but high in the logs) would allow a user to correct this.
 \end{itemize}
 
 \begin{figure*}[!t]
@@ -147,23 +155,23 @@ Figure~\ref{fig:progress} shows three held-out brackets with predicted primitive
 \includegraphics[width=0.7\linewidth]{figures/progress_0.png}\\[2pt]
 \includegraphics[width=0.7\linewidth]{figures/progress_1.png}\\[2pt]
 \includegraphics[width=0.7\linewidth]{figures/progress_2.png}
-\caption{Rollout gallery: predicted primitives (red solid) overlaid on ground-truth steps (blue dotted) for three representative brackets, read left-to-right. Large rendering makes alignment, fillets, and hole placement easy to inspect.}
+\caption{Rollout gallery: predicted primitives (red solid) overlaid on ground-truth steps (blue dotted) for three representative brackets, read top-to-bottom. Large rendering makes alignment, fillets, and hole placement easy to inspect.}
 \label{fig:progress}
 \end{figure*}
 
 \subsection{Risk and Failure Analysis}
 The risk sweep in Fig.~\ref{fig:risk} decreases monotonically as caution increases, confirming that $\lambda$ acts as an effective knob for trading off confidence against safety. Figure~\ref{fig:confusion} further elucidates the performance gains. The primary source of error remains the confusion between \textit{Line} and \textit{Arc} primitives. This is geometrically consistent with the bracket domain, where rounded corners (fillets) and sharp corners often appear in similar local contexts. The low ECE of the CQL model suggests it successfully identifies these ambiguous regions.
 
-\begin{figure}[H]
+\begin{figure}[!t]
     \centering
-    \includegraphics[width=\linewidth]{figures/risk_curve.png}
+    \includegraphics[width=0.8\linewidth]{figures/risk_curve.png}
     \caption{Risk-sensitive penalty sweep across $\lambda$. As we increase the risk aversion $\lambda$, the "value" of the chosen actions decreases monotonically. This confirms that the model has learned a coherent value landscape where "safer" actions have higher base values but lower variance.}
     \label{fig:risk}
 \end{figure}
 
-\begin{figure}[H]
+\begin{figure}[!t]
     \centering
-    \includegraphics[width=\linewidth]{../StudyImplementation/artifacts/analysis/confusion_matrix.png}
+    \includegraphics[width=0.8\linewidth]{../StudyImplementation/artifacts/analysis/confusion_matrix.png}
     \caption{Confusion matrix over primitive types. The diagonal dominance shows strong classification performance. The main off-diagonal errors are Line-Arc confusions (approx 13\%), which corresponds to the ambiguity between fillets and sharp corners.}
     \label{fig:confusion}
 \end{figure}
@@ -173,7 +181,7 @@ Reliability curves in Fig.~\ref{fig:calibration} compare the baseline BC agent a
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\linewidth]{figures/reliability_comparison.png}
+    \includegraphics[width=0.8\linewidth]{figures/reliability_comparison.png}
     \caption{Reliability curve comparison. The baseline Behavior Cloning (BC) policy (gray) is overconfident, often assigning $>$80\% probability to actions it gets wrong. The Conservative Q-Learning (CQL) policy (red) tracks the ideal diagonal much closer (ECE 0.13), showing it is "well-calibrated."}
     \label{fig:calibration}
 \end{figure}
